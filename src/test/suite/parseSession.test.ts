@@ -216,6 +216,28 @@ describe("matchWorkspacePrecomputed", () => {
     assert.strictEqual(matchWorkspacePrecomputed("/home/user/proj/src", precomputed, 2)?.uri.fsPath, folder.uri.fsPath);
   });
 
+  it("uses each folder's own maxDepth when the resolver supplies one", () => {
+    const home = makeFolder("/home/user");
+    const project = makeFolder("/home/user/sources/project");
+    const precomputed = precomputeWorkspacePaths([home, project], (folder) =>
+      folder.uri.fsPath === home.uri.fsPath ? 0 : -1
+    );
+    // home is limited to its own root
+    assert.strictEqual(matchWorkspacePrecomputed("/home/user", precomputed)?.uri.fsPath, home.uri.fsPath);
+    assert.strictEqual(matchWorkspacePrecomputed("/home/user/other", precomputed), undefined);
+    // the project folder stays unlimited regardless of the home folder's limit
+    assert.strictEqual(
+      matchWorkspacePrecomputed("/home/user/sources/project/src/deep", precomputed)?.uri.fsPath,
+      project.uri.fsPath
+    );
+  });
+
+  it("prefers the per-folder maxDepth over the argument default", () => {
+    const folder = makeFolder("/home/user");
+    const precomputed = precomputeWorkspacePaths([folder], () => -1);
+    assert.strictEqual(matchWorkspacePrecomputed("/home/user/a/b", precomputed, 0)?.uri.fsPath, folder.uri.fsPath);
+  });
+
   it("measures depth from the most-specific workspace, not the shallowest", () => {
     const parent = makeFolder("/workspace");
     const child = makeFolder("/workspace/project");
