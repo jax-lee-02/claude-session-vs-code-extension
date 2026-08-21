@@ -57,7 +57,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const uniqueId = `${node.sessionId}-${node.promptId}`;
     const existing = promptPanels.get(uniqueId);
     if (existing) {
-      existing.reveal(vscode.ViewColumn.Beside);
+      existing.reveal(vscode.ViewColumn.Active);
       return;
     }
 
@@ -65,7 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const panel = vscode.window.createWebviewPanel(
       "claudeSessionsPromptPreview",
       tabTitle,
-      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: true },
       { enableScripts: false }
     );
 
@@ -81,7 +81,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const openSessionView = async (session: SessionNode) => {
     const existing = sessionViewPanels.get(session.sessionId);
     if (existing) {
-      existing.reveal(vscode.ViewColumn.Beside);
+      existing.reveal(vscode.ViewColumn.Active);
       return;
     }
     if (sessionViewInFlight.has(session.sessionId)) {
@@ -96,7 +96,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const panel = vscode.window.createWebviewPanel(
         "claudeSessionsView",
         tabTitle,
-        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+        { viewColumn: vscode.ViewColumn.Active, preserveFocus: true },
         { enableScripts: false }
       );
 
@@ -280,6 +280,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       outputChannel.appendLine("[lifecycle] Workspace folders changed. Refreshing tree.");
+      hasRefreshed = true;
+      await stateManager.refresh();
+    })
+  );
+
+  // Relevant configuration changed (e.g. session depth limit)
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async (event) => {
+      if (!event.affectsConfiguration("claudeSessions.maxDepth")) {
+        return;
+      }
+      outputChannel.appendLine("[lifecycle] claudeSessions.maxDepth changed. Refreshing tree.");
       hasRefreshed = true;
       await stateManager.refresh();
     })

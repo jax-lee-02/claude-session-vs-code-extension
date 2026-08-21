@@ -195,4 +195,33 @@ describe("matchWorkspacePrecomputed", () => {
     const result = matchWorkspacePrecomputed("/unrelated/path", precomputed);
     assert.strictEqual(result, undefined);
   });
+
+  it("keeps unlimited behavior when maxDepth is negative", () => {
+    const folder = makeFolder("/home/user");
+    const precomputed = precomputeWorkspacePaths([folder]);
+    const deep = matchWorkspacePrecomputed("/home/user/a/b/c/d", precomputed, -1);
+    assert.strictEqual(deep?.uri.fsPath, folder.uri.fsPath);
+  });
+
+  it("excludes sessions deeper than maxDepth below the root", () => {
+    const folder = makeFolder("/home/user");
+    const precomputed = precomputeWorkspacePaths([folder]);
+    // depth 0 = root itself only
+    assert.strictEqual(matchWorkspacePrecomputed("/home/user", precomputed, 0)?.uri.fsPath, folder.uri.fsPath);
+    assert.strictEqual(matchWorkspacePrecomputed("/home/user/proj", precomputed, 0), undefined);
+    // depth 1 = direct children included, grandchildren excluded
+    assert.strictEqual(matchWorkspacePrecomputed("/home/user/proj", precomputed, 1)?.uri.fsPath, folder.uri.fsPath);
+    assert.strictEqual(matchWorkspacePrecomputed("/home/user/proj/src", precomputed, 1), undefined);
+    // depth 2 includes grandchildren
+    assert.strictEqual(matchWorkspacePrecomputed("/home/user/proj/src", precomputed, 2)?.uri.fsPath, folder.uri.fsPath);
+  });
+
+  it("measures depth from the most-specific workspace, not the shallowest", () => {
+    const parent = makeFolder("/workspace");
+    const child = makeFolder("/workspace/project");
+    const precomputed = precomputeWorkspacePaths([parent, child]);
+    // cwd is 1 below the child root, so it survives maxDepth=1 via the child
+    const result = matchWorkspacePrecomputed("/workspace/project/src", precomputed, 1);
+    assert.strictEqual(result?.uri.fsPath, child.uri.fsPath);
+  });
 });

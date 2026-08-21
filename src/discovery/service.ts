@@ -35,6 +35,19 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
     this.projectsRoot = projectsRoot ?? path.join(os.homedir(), ".claude", "projects");
   }
 
+  /**
+   * Reads claudeSessions.maxDepth. Returns -1 (unlimited) when unset or invalid.
+   * Value N >= 0 keeps only sessions whose cwd is at most N sub-folders below a
+   * workspace root, so opening `~` no longer surfaces deeply-nested projects.
+   */
+  private readMaxDepth(): number {
+    const raw = vscode.workspace.getConfiguration("claudeSessions").get<number>("maxDepth");
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+      return -1;
+    }
+    return Math.floor(raw);
+  }
+
   public invalidateSessionCache(transcriptPath: string): void {
     this.sessionCacheByPath.delete(transcriptPath);
     this.contentCacheByPath.delete(transcriptPath);
@@ -86,13 +99,14 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
     }
 
     const precomputed = precomputeWorkspacePaths(workspaceFolders);
+    const maxDepth = this.readMaxDepth();
     const byWorkspaceAndSession = new Map<string, Map<string, SessionNode>>();
     for (const workspace of workspaceFolders) {
       byWorkspaceAndSession.set(workspace.uri.toString(), new Map<string, SessionNode>());
     }
 
     for (const candidate of candidates) {
-      const targetWorkspace = matchWorkspacePrecomputed(candidate.parsed.cwd, precomputed);
+      const targetWorkspace = matchWorkspacePrecomputed(candidate.parsed.cwd, precomputed, maxDepth);
       if (!targetWorkspace) {
         continue;
       }
