@@ -107,15 +107,23 @@ export function matchWorkspace(
 export interface NormalizedWorkspaceFolder {
   readonly folder: vscode.WorkspaceFolder;
   readonly normalizedPath: string;
+  /** Per-folder depth limit; undefined falls back to the value passed to matchWorkspacePrecomputed. */
+  readonly maxDepth?: number;
 }
 
+/**
+ * `resolveMaxDepth` lets each folder carry its own depth limit, so a folder-scoped
+ * setting (e.g. `0` in `~/.vscode/settings.json`) overrides the user-level value.
+ */
 export function precomputeWorkspacePaths(
-  workspaceFolders: readonly vscode.WorkspaceFolder[]
+  workspaceFolders: readonly vscode.WorkspaceFolder[],
+  resolveMaxDepth?: (folder: vscode.WorkspaceFolder) => number
 ): NormalizedWorkspaceFolder[] {
   return workspaceFolders
     .map((folder) => ({
       folder,
-      normalizedPath: normalizeFsPath(folder.uri.fsPath)
+      normalizedPath: normalizeFsPath(folder.uri.fsPath),
+      maxDepth: resolveMaxDepth?.(folder)
     }))
     .sort((a, b) => b.normalizedPath.length - a.normalizedPath.length);
 }
@@ -124,7 +132,8 @@ export function precomputeWorkspacePaths(
  * Match a session cwd to the most specific workspace folder that contains it.
  * When maxDepth >= 0, a session is only matched if its cwd is at most maxDepth
  * sub-folders below the workspace root (0 = root itself only, 1 = direct
- * children, ...). maxDepth < 0 means unlimited (original behavior).
+ * children, ...). maxDepth < 0 means unlimited (original behavior). An entry that
+ * carries its own `maxDepth` uses that value instead of the `maxDepth` argument.
  * `precomputed` is sorted longest-path first, so the first hit is the
  * most-specific folder.
  */
@@ -138,7 +147,8 @@ export function matchWorkspacePrecomputed(
     if (!isNormalizedPathWithin(normalizedCwd, entry.normalizedPath)) {
       continue;
     }
-    if (maxDepth >= 0 && normalizedDepthBelow(normalizedCwd, entry.normalizedPath) > maxDepth) {
+    const effectiveMaxDepth = entry.maxDepth ?? maxDepth;
+    if (effectiveMaxDepth >= 0 && normalizedDepthBelow(normalizedCwd, entry.normalizedPath) > effectiveMaxDepth) {
       continue;
     }
     return entry.folder;
