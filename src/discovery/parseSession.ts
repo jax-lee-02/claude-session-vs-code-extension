@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as readline from "readline";
 import * as vscode from "vscode";
 import { extractText, isDisplayableUserPrompt, isRecord } from "./content";
-import { isNormalizedPathWithin, isPathWithin, normalizeFsPath } from "./pathUtils";
+import { isNormalizedPathWithin, isPathWithin, normalizeFsPath, normalizedDepthBelow } from "./pathUtils";
 import { chooseSessionTitleRaw, toNonEmptySingleLine } from "./title";
 import { ParsedSession } from "./types";
 
@@ -120,15 +120,28 @@ export function precomputeWorkspacePaths(
     .sort((a, b) => b.normalizedPath.length - a.normalizedPath.length);
 }
 
+/**
+ * Match a session cwd to the most specific workspace folder that contains it.
+ * When maxDepth >= 0, a session is only matched if its cwd is at most maxDepth
+ * sub-folders below the workspace root (0 = root itself only, 1 = direct
+ * children, ...). maxDepth < 0 means unlimited (original behavior).
+ * `precomputed` is sorted longest-path first, so the first hit is the
+ * most-specific folder.
+ */
 export function matchWorkspacePrecomputed(
   sessionCwd: string,
-  precomputed: readonly NormalizedWorkspaceFolder[]
+  precomputed: readonly NormalizedWorkspaceFolder[],
+  maxDepth = -1
 ): vscode.WorkspaceFolder | undefined {
   const normalizedCwd = normalizeFsPath(sessionCwd);
   for (const entry of precomputed) {
-    if (isNormalizedPathWithin(normalizedCwd, entry.normalizedPath)) {
-      return entry.folder;
+    if (!isNormalizedPathWithin(normalizedCwd, entry.normalizedPath)) {
+      continue;
     }
+    if (maxDepth >= 0 && normalizedDepthBelow(normalizedCwd, entry.normalizedPath) > maxDepth) {
+      continue;
+    }
+    return entry.folder;
   }
   return undefined;
 }
