@@ -175,6 +175,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show a required warning confirmation before launching Claude with --dangerously-skip-permissions."
+        },
+        "claudeSessions.maxDepth": {
+          "type": "integer",
+          "default": -1,
+          "minimum": -1,
+          "markdownDescription": "Limit how deep below an open workspace folder a session's working directory may be for it to appear. `-1` (default) means unlimited. `0` shows only sessions whose cwd is exactly the workspace root; `1` also includes its direct sub-folders, and so on. Useful when opening `~` so nested projects don't flood the list."
         }
       }
     }
