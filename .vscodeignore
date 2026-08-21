@@ -10,4 +10,13 @@ README.md
 .husky/**
 .prettierrc
 eslint.config.mjs
-plannind/**
+planning/**
+.claude/**
+.omc/**
+.worktrees/**
+coverage/**
+.c8rc.json
+.prettierignore
+*.vsix
+tsconfig.json
+install.sh
