@@ -1,7 +1,9 @@
 import * as assert from "assert";
 import type * as vscode from "vscode";
+import type { SessionNode } from "../../models";
 import {
   buildClaudeResumeCommand,
+  buildSessionEnv,
   shellQuote,
   executeInTerminal,
   SHELL_INTEGRATION_TIMEOUT_MS,
@@ -446,5 +448,32 @@ describe("shellQuote", () => {
 
   it("handles string with multiple single quotes", () => {
     assert.strictEqual(shellQuote("it's a 'test'"), "'it'\\''s a '\\''test'\\'''");
+  });
+});
+
+describe("buildSessionEnv()", () => {
+  function makeSession(configDir: string): SessionNode {
+    return {
+      kind: "session",
+      sessionId: "sess-1",
+      cwd: "/workspace/project",
+      transcriptPath: `${configDir}/projects/bucket/sess-1.jsonl`,
+      title: "Session",
+      updatedAt: 0,
+      profileId: "personal",
+      profileLabel: "personal",
+      configDir
+    };
+  }
+
+  it("points CLAUDE_CONFIG_DIR at the profile the transcript belongs to", () => {
+    assert.deepStrictEqual(buildSessionEnv(makeSession("/home/user/.claude-personal")), {
+      CLAUDE_CONFIG_DIR: "/home/user/.claude-personal"
+    });
+  });
+
+  it("returns undefined when the session carries no configuration directory", () => {
+    const session = { ...makeSession("/home/user/.claude"), configDir: "" };
+    assert.strictEqual(buildSessionEnv(session), undefined);
   });
 });

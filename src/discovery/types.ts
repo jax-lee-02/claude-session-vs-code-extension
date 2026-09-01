@@ -16,6 +16,8 @@ export interface SessionPrompt {
 
 export interface DiscoveryResult {
   readonly sessionsByWorkspace: Map<string, import("../models").SessionNode[]>;
+  /** Profiles that were scanned, in display order. */
+  readonly profiles: readonly import("./profileRoots").ProfileRoot[];
   readonly globalInfoMessage?: string;
 }
 
@@ -23,6 +25,7 @@ export interface TranscriptCandidate {
   readonly transcriptPath: string;
   readonly updatedAt: number;
   readonly parsed: ParsedSession;
+  readonly profile: import("./profileRoots").ProfileRoot;
 }
 
 export interface CachedPromptList {
@@ -62,6 +65,7 @@ export interface CachedContentText {
 
 export interface SearchableEntry {
   readonly sessionId: string;
+  readonly profileId: string;
   readonly transcriptPath: string;
   readonly title: string;
   readonly cwd: string;

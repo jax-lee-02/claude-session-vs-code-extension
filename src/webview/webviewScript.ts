@@ -110,6 +110,84 @@ export function getWebviewScript(): string {
           rows.push('<div class="empty-state">Open a folder to view Claude sessions.</div>');
         }
 
+        function renderSession(session) {
+          const sessionExpanded = state.expandedSessions.includes(session.sessionId);
+          const isChecked = state.checkedSessionIds.includes(session.sessionId);
+          const isRenaming = renamingSessionId === session.sessionId;
+
+          let labelHtml;
+          if (isRenaming) {
+            labelHtml = '<input class="rename-input" type="text" value="' + escapeHtml(session.title) + '" data-session-id="' + escapeHtml(session.sessionId) + '" />';
+          } else {
+            const truncated = session.title.length > 35
+              ? session.title.slice(0, 32) + '...'
+              : session.title;
+            labelHtml = '<span class="tree-label">' + escapeHtml(truncated) + '</span>';
+          }
+
+          let checkboxHtml = '';
+          if (state.selectionMode) {
+            checkboxHtml = '<span class="tree-checkbox ' + (isChecked ? 'checked' : '') + '" data-action="toggleCheck" data-session-id="' + escapeHtml(session.sessionId) + '"></span>';
+          }
+
+          const hoverActions = isRenaming ? '' :
+            '<span class="hover-actions">' +
+            '<button class="action-btn" data-action="viewSession" data-session-id="' + escapeHtml(session.sessionId) + '" title="View Session" aria-label="View Session"><span class="codicon codicon-eye"></span></button>' +
+            '<button class="action-btn" data-action="openSession" data-session-id="' + escapeHtml(session.sessionId) + '" title="Open Session"><img src="' + (container.dataset.terminalGreenUri || '') + '" /></button>' +
+            '<button class="action-btn" data-action="openSessionDangerously" data-session-id="' + escapeHtml(session.sessionId) + '" title="Open Session (Skip Permissions)"><img src="' + (container.dataset.terminalRedUri || '') + '" /></button>' +
+            '<button class="action-btn" data-action="startRename" data-session-id="' + escapeHtml(session.sessionId) + '" title="Rename"><span class="codicon codicon-edit"></span></button>' +
+            '<button class="action-btn" data-action="deleteSession" data-session-id="' + escapeHtml(session.sessionId) + '" title="Delete"><span class="codicon codicon-trash"></span></button>' +
+            '</span>';
+
+          const sessionDepth = session.depth || 1;
+
+          rows.push(
+            '<div class="tree-row' + (focusedIndex === rows.length ? ' focused' : '') + '" ' +
+            'data-depth="' + sessionDepth + '" data-type="session" data-session-id="' + escapeHtml(session.sessionId) + '" ' +
+            'data-tooltip="' + escapeHtml(session.tooltip) + '">' +
+            '<span class="twistie ' + (sessionExpanded ? 'expanded' : 'collapsed') + '"></span>' +
+            checkboxHtml +
+            labelHtml +
+            (isRenaming ? '' : '<span class="tree-description">' + escapeHtml(session.description) + '</span>') +
+            hoverActions +
+            '</div>'
+          );
+
+          if (sessionExpanded && session.prompts) {
+            for (const prompt of session.prompts) {
+              const matchIndicator = prompt.matchType
+                ? '<span class="match-indicator"></span>'
+                : '';
+
+              let descriptionHtml = '';
+              if (prompt.matchType === 'prompt') {
+                descriptionHtml = '<span class="tree-description">match in prompt</span>';
+              } else if (prompt.matchType === 'response') {
+                descriptionHtml = '<span class="tree-description">match in response</span>';
+              }
+
+              const promptLabel = highlightLabel(prompt.promptTitle, prompt.highlightRanges);
+
+              const promptTooltip = (prompt.promptRaw || '').slice(0, 300) +
+                (prompt.promptRaw && prompt.promptRaw.length > 300 ? '...' : '');
+
+              rows.push(
+                '<div class="tree-row" data-depth="' + (sessionDepth + 1) + '" data-type="prompt" ' +
+                'data-prompt-id="' + escapeHtml(prompt.promptId) + '" ' +
+                'data-session-id="' + escapeHtml(prompt.sessionId) + '" ' +
+                'data-tooltip="' + escapeHtml(promptTooltip) + '"' +
+                '>' +
+                '<span class="twistie leaf"></span>' +
+                matchIndicator +
+                '<span class="tree-icon"><span class="codicon codicon-book"></span></span>' +
+                '<span class="tree-label">' + promptLabel + '</span>' +
+                descriptionHtml +
+                '</div>'
+              );
+            }
+          }
+        }
+
         for (const workspace of state.workspaces) {
           if (!workspace.workspaceName) {
             // Empty workspace placeholder
@@ -137,7 +215,10 @@ export function getWebviewScript(): string {
             continue;
           }
 
-          if (workspace.infoMessage && workspace.sessions.length === 0) {
+          const profileGroups = workspace.profiles || null;
+          const itemCount = profileGroups ? profileGroups.length : workspace.sessions.length;
+
+          if (workspace.infoMessage && itemCount === 0) {
             rows.push(
               '<div class="info-row" data-depth="1">' +
               '<span class="codicon codicon-info"></span>' +
@@ -147,79 +228,30 @@ export function getWebviewScript(): string {
             continue;
           }
 
-          for (const session of workspace.sessions) {
-            const sessionExpanded = state.expandedSessions.includes(session.sessionId);
-            const isChecked = state.checkedSessionIds.includes(session.sessionId);
-            const isRenaming = renamingSessionId === session.sessionId;
-
-            let labelHtml;
-            if (isRenaming) {
-              labelHtml = '<input class="rename-input" type="text" value="' + escapeHtml(session.title) + '" data-session-id="' + escapeHtml(session.sessionId) + '" />';
-            } else {
-              const truncated = session.title.length > 35
-                ? session.title.slice(0, 32) + '...'
-                : session.title;
-              labelHtml = '<span class="tree-label">' + escapeHtml(truncated) + '</span>';
+          if (!profileGroups) {
+            for (const session of workspace.sessions) {
+              renderSession(session);
             }
+            continue;
+          }
 
-            let checkboxHtml = '';
-            if (state.selectionMode) {
-              checkboxHtml = '<span class="tree-checkbox ' + (isChecked ? 'checked' : '') + '" data-action="toggleCheck" data-session-id="' + escapeHtml(session.sessionId) + '"></span>';
-            }
-
-            const hoverActions = isRenaming ? '' :
-              '<span class="hover-actions">' +
-              '<button class="action-btn" data-action="viewSession" data-session-id="' + escapeHtml(session.sessionId) + '" title="View Session" aria-label="View Session"><span class="codicon codicon-eye"></span></button>' +
-              '<button class="action-btn" data-action="openSession" data-session-id="' + escapeHtml(session.sessionId) + '" title="Open Session"><img src="' + (container.dataset.terminalGreenUri || '') + '" /></button>' +
-              '<button class="action-btn" data-action="openSessionDangerously" data-session-id="' + escapeHtml(session.sessionId) + '" title="Open Session (Skip Permissions)"><img src="' + (container.dataset.terminalRedUri || '') + '" /></button>' +
-              '<button class="action-btn" data-action="startRename" data-session-id="' + escapeHtml(session.sessionId) + '" title="Rename"><span class="codicon codicon-edit"></span></button>' +
-              '<button class="action-btn" data-action="deleteSession" data-session-id="' + escapeHtml(session.sessionId) + '" title="Delete"><span class="codicon codicon-trash"></span></button>' +
-              '</span>';
-
+          for (const profile of profileGroups) {
+            const profileExpanded = state.expandedProfiles.includes(profile.profileKey);
             rows.push(
-              '<div class="tree-row' + (focusedIndex === rows.length ? ' focused' : '') + '" ' +
-              'data-depth="1" data-type="session" data-session-id="' + escapeHtml(session.sessionId) + '" ' +
-              'data-tooltip="' + escapeHtml(session.tooltip) + '">' +
-              '<span class="twistie ' + (sessionExpanded ? 'expanded' : 'collapsed') + '"></span>' +
-              checkboxHtml +
-              labelHtml +
-              (isRenaming ? '' : '<span class="tree-description">' + escapeHtml(session.description) + '</span>') +
-              hoverActions +
+              '<div class="tree-row" data-depth="1" data-type="profile" data-profile-key="' + escapeHtml(profile.profileKey) + '" title="' + escapeHtml(profile.description) + '">' +
+              '<span class="twistie ' + (profileExpanded ? 'expanded' : 'collapsed') + '"></span>' +
+              '<span class="tree-icon"><span class="codicon codicon-account"></span></span>' +
+              '<span class="tree-label">' + escapeHtml(profile.label) + '</span>' +
+              '<span class="tree-description">' + escapeHtml(profile.description) + '</span>' +
               '</div>'
             );
 
-            if (sessionExpanded && session.prompts) {
-              for (const prompt of session.prompts) {
-                const matchIndicator = prompt.matchType
-                  ? '<span class="match-indicator"></span>'
-                  : '';
+            if (!profileExpanded) {
+              continue;
+            }
 
-                let descriptionHtml = '';
-                if (prompt.matchType === 'prompt') {
-                  descriptionHtml = '<span class="tree-description">match in prompt</span>';
-                } else if (prompt.matchType === 'response') {
-                  descriptionHtml = '<span class="tree-description">match in response</span>';
-                }
-
-                const promptLabel = highlightLabel(prompt.promptTitle, prompt.highlightRanges);
-
-                const promptTooltip = (prompt.promptRaw || '').slice(0, 300) +
-                  (prompt.promptRaw && prompt.promptRaw.length > 300 ? '...' : '');
-
-                rows.push(
-                  '<div class="tree-row" data-depth="2" data-type="prompt" ' +
-                  'data-prompt-id="' + escapeHtml(prompt.promptId) + '" ' +
-                  'data-session-id="' + escapeHtml(prompt.sessionId) + '" ' +
-                  'data-tooltip="' + escapeHtml(promptTooltip) + '"' +
-                  '>' +
-                  '<span class="twistie leaf"></span>' +
-                  matchIndicator +
-                  '<span class="tree-icon"><span class="codicon codicon-book"></span></span>' +
-                  '<span class="tree-label">' + promptLabel + '</span>' +
-                  descriptionHtml +
-                  '</div>'
-                );
-              }
+            for (const session of profile.sessions) {
+              renderSession(session);
             }
           }
         }
@@ -317,6 +349,8 @@ export function getWebviewScript(): string {
 
         if (type === 'workspace') {
           vscode.postMessage({ type: 'toggleWorkspaceExpand', workspaceUri: row.dataset.uri });
+        } else if (type === 'profile') {
+          vscode.postMessage({ type: 'toggleProfileExpand', profileKey: row.dataset.profileKey });
         } else if (type === 'session') {
           if (state && state.selectionMode) {
             if (e.shiftKey && lastCheckedIndex !== -1) {
@@ -424,6 +458,11 @@ export function getWebviewScript(): string {
               if (!state.expandedWorkspaces.includes(uri)) {
                 vscode.postMessage({ type: 'toggleWorkspaceExpand', workspaceUri: uri });
               }
+            } else if (type === 'profile') {
+              const profileKey = row.dataset.profileKey;
+              if (!state.expandedProfiles.includes(profileKey)) {
+                vscode.postMessage({ type: 'toggleProfileExpand', profileKey: profileKey });
+              }
             } else if (type === 'session') {
               const sessionId = row.dataset.sessionId;
               if (!state.expandedSessions.includes(sessionId)) {
@@ -441,6 +480,11 @@ export function getWebviewScript(): string {
               if (state.expandedWorkspaces.includes(uri)) {
                 vscode.postMessage({ type: 'toggleWorkspaceExpand', workspaceUri: uri });
               }
+            } else if (type === 'profile') {
+              const profileKey = row.dataset.profileKey;
+              if (state.expandedProfiles.includes(profileKey)) {
+                vscode.postMessage({ type: 'toggleProfileExpand', profileKey: profileKey });
+              }
             } else if (type === 'session') {
               const sessionId = row.dataset.sessionId;
               if (state.expandedSessions.includes(sessionId)) {
@@ -455,6 +499,8 @@ export function getWebviewScript(): string {
             const type = row.dataset.type;
             if (type === 'workspace') {
               vscode.postMessage({ type: 'toggleWorkspaceExpand', workspaceUri: row.dataset.uri });
+            } else if (type === 'profile') {
+              vscode.postMessage({ type: 'toggleProfileExpand', profileKey: row.dataset.profileKey });
             } else if (type === 'session') {
               vscode.postMessage({ type: 'openSession', sessionId: row.dataset.sessionId });
             } else if (type === 'prompt') {

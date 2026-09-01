@@ -11,6 +11,9 @@ function makeSession(overrides: Partial<SessionNode> = {}): SessionNode {
     cwd: "/home/user/project",
     transcriptPath: "/home/user/.claude/projects/proj/test.jsonl",
     updatedAt: new Date("2024-01-15T10:00:00Z").getTime(),
+    profileId: "default",
+    profileLabel: "default",
+    configDir: "/home/user/.claude",
     ...overrides
   };
 }

@@ -164,6 +164,10 @@ export class SessionTreeViewProvider implements vscode.WebviewViewProvider {
         this.stateManager.toggleWorkspaceExpand(msg.workspaceUri);
         break;
 
+      case "toggleProfileExpand":
+        this.stateManager.toggleProfileExpand(msg.profileKey);
+        break;
+
       case "toggleSessionExpand":
         this.stateManager.toggleSessionExpand(msg.sessionId);
         break;

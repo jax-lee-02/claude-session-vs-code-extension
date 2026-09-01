@@ -51,6 +51,7 @@ export function getWebviewStyles(): string {
     .tree-row[data-depth="0"] { padding-left: 8px; }
     .tree-row[data-depth="1"] { padding-left: 24px; }
     .tree-row[data-depth="2"] { padding-left: 40px; }
+    .tree-row[data-depth="3"] { padding-left: 56px; }
 
     .twistie {
       display: inline-flex;

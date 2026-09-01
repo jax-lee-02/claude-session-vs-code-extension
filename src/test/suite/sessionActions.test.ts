@@ -16,6 +16,9 @@ function makeSessionNode(overrides: Partial<SessionNode> = {}): SessionNode {
     transcriptPath: "/home/user/.claude/projects/-workspace-project/sess-001.jsonl",
     title: "My Test Session",
     updatedAt: Date.now(),
+    profileId: "default",
+    profileLabel: "default",
+    configDir: "/home/user/.claude",
     ...overrides
   };
 }
@@ -45,7 +48,7 @@ function createMockDiscovery(prompts: SessionPrompt[] = []): MockDiscovery {
   const invalidatedPaths: string[] = [];
   return {
     invalidatedPaths,
-    discover: async () => ({ sessionsByWorkspace: new Map(), globalInfoMessage: undefined }),
+    discover: async () => ({ sessionsByWorkspace: new Map(), profiles: [], globalInfoMessage: undefined }),
     getUserPrompts: async () => prompts,
     getSearchableEntries: async () => [],
     invalidateSessionCache: (path: string) => {

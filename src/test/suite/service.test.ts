@@ -5,6 +5,7 @@ import { promises as fsp } from "fs";
 import * as vscode from "vscode";
 import { ClaudeSessionDiscoveryService } from "../../discovery/service";
 import type { SessionNode } from "../../models";
+import type { ProfileRoot } from "../../discovery/profileRoots";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -515,7 +516,10 @@ describe("ClaudeSessionDiscoveryService.getUserPrompts()", () => {
       cwd,
       transcriptPath,
       title: "Test Session",
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      profileId: "default",
+      profileLabel: "default",
+      configDir: path.dirname(projectsRoot)
     };
   }
 
@@ -634,5 +638,117 @@ describe("ClaudeSessionDiscoveryService.getUserPrompts()", () => {
     assert.strictEqual(prompts2.length, 2, "should return fresh data with the newly added prompt");
     assert.strictEqual(prompts2[1].promptId, "sc-2");
     assert.strictEqual(prompts2[1].promptRaw, "New prompt added after cache prime");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-profile discovery
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSessionDiscoveryService.discover() across profiles", () => {
+  let tmpDir: string;
+  let workDir: string;
+  let defaultRoot: ProfileRoot;
+  let personalRoot: ProfileRoot;
+
+  beforeEach(async () => {
+    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "claude-svc-profiles-"));
+    workDir = path.join(tmpDir, "workspace", "project");
+    await fsp.mkdir(workDir, { recursive: true });
+
+    defaultRoot = {
+      id: "default",
+      label: "default",
+      configDir: path.join(tmpDir, ".claude"),
+      projectsDir: path.join(tmpDir, ".claude", "projects")
+    };
+    personalRoot = {
+      id: "personal",
+      label: "personal",
+      configDir: path.join(tmpDir, ".claude-personal"),
+      projectsDir: path.join(tmpDir, ".claude-personal", "projects")
+    };
+
+    for (const root of [defaultRoot, personalRoot]) {
+      await fsp.mkdir(path.join(root.projectsDir, "bucket"), { recursive: true });
+    }
+  });
+
+  afterEach(async () => {
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function writeSession(root: ProfileRoot, sessionId: string): Promise<void> {
+    await fsp.writeFile(
+      path.join(root.projectsDir, "bucket", `${sessionId}.jsonl`),
+      makeTranscript(sessionId, workDir, [{ uuid: `${sessionId}-p1`, content: `Prompt for ${sessionId}` }])
+    );
+  }
+
+  it("returns sessions from every configured profile", async () => {
+    await writeSession(defaultRoot, "sess-work");
+    await writeSession(personalRoot, "sess-personal");
+
+    const svc = new ClaudeSessionDiscoveryService(createMockOutputChannel(), [defaultRoot, personalRoot]);
+    const folder = makeFolder(workDir);
+    const result = await svc.discover([folder]);
+
+    const sessions = result.sessionsByWorkspace.get(folder.uri.toString()) ?? [];
+    assert.deepStrictEqual(sessions.map((session) => session.sessionId).sort(), ["sess-personal", "sess-work"]);
+  });
+
+  it("tags each session with its profile and configuration directory", async () => {
+    await writeSession(defaultRoot, "sess-work");
+    await writeSession(personalRoot, "sess-personal");
+
+    const svc = new ClaudeSessionDiscoveryService(createMockOutputChannel(), [defaultRoot, personalRoot]);
+    const folder = makeFolder(workDir);
+    const result = await svc.discover([folder]);
+
+    const sessions = result.sessionsByWorkspace.get(folder.uri.toString()) ?? [];
+    const personal = sessions.find((session) => session.sessionId === "sess-personal");
+    const work = sessions.find((session) => session.sessionId === "sess-work");
+
+    assert.strictEqual(personal?.profileId, "personal");
+    assert.strictEqual(personal?.configDir, personalRoot.configDir);
+    assert.strictEqual(work?.profileId, "default");
+    assert.strictEqual(work?.configDir, defaultRoot.configDir);
+  });
+
+  it("reports the scanned profiles in order", async () => {
+    await writeSession(defaultRoot, "sess-work");
+
+    const svc = new ClaudeSessionDiscoveryService(createMockOutputChannel(), [defaultRoot, personalRoot]);
+    const result = await svc.discover([makeFolder(workDir)]);
+
+    assert.deepStrictEqual(
+      result.profiles.map((profile) => profile.id),
+      ["default", "personal"]
+    );
+  });
+
+  it("skips a configured profile whose projects directory is missing", async () => {
+    await writeSession(defaultRoot, "sess-work");
+    await fsp.rm(personalRoot.projectsDir, { recursive: true, force: true });
+
+    const svc = new ClaudeSessionDiscoveryService(createMockOutputChannel(), [defaultRoot, personalRoot]);
+    const folder = makeFolder(workDir);
+    const result = await svc.discover([folder]);
+
+    assert.deepStrictEqual(
+      result.profiles.map((profile) => profile.id),
+      ["default"]
+    );
+    assert.strictEqual((result.sessionsByWorkspace.get(folder.uri.toString()) ?? []).length, 1);
+  });
+
+  it("keeps profile information on searchable entries", async () => {
+    await writeSession(personalRoot, "sess-personal");
+
+    const svc = new ClaudeSessionDiscoveryService(createMockOutputChannel(), [defaultRoot, personalRoot]);
+    const entries = await svc.getSearchableEntries([makeFolder(workDir)]);
+
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].profileId, "personal");
   });
 });
