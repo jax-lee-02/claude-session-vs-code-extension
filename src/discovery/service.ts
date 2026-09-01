@@ -17,22 +17,48 @@ import {
 } from "./types";
 import { parseSessionContent } from "../search/parseContent";
 import { collectTranscriptFiles, exists } from "./scan";
+import { ProfileRoot, profileIdFromConfigDir, resolveProfileRoots } from "./profileRoots";
 import { parseTranscriptFile, matchWorkspacePrecomputed, precomputeWorkspacePaths } from "./parseSession";
 import { parseAllUserPrompts } from "./parsePrompts";
 
 const BATCH_CONCURRENCY = 8;
 
 export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
-  private readonly projectsRoot: string;
+  /** Fixed roots injected by tests; when unset the roots are resolved per discover(). */
+  private readonly explicitRoots: ProfileRoot[] | undefined;
   private readonly promptCacheByPath = new Map<string, CachedPromptList>();
   private readonly sessionCacheByPath = new Map<string, CachedSessionMeta>();
   private readonly contentCacheByPath = new Map<string, CachedContentText>();
 
   public constructor(
     private readonly outputChannel: vscode.OutputChannel,
-    projectsRoot?: string
+    roots?: string | readonly ProfileRoot[]
   ) {
-    this.projectsRoot = projectsRoot ?? path.join(os.homedir(), ".claude", "projects");
+    if (typeof roots === "string") {
+      this.explicitRoots = [projectsDirToProfileRoot(roots)];
+    } else if (roots) {
+      this.explicitRoots = [...roots];
+    } else {
+      this.explicitRoots = undefined;
+    }
+  }
+
+  /**
+   * Configuration directories to scan. `claudeSessions.profileRoots` replaces
+   * auto-discovery when set; otherwise `~/.claude`, every `~/.claude-*` holding
+   * a `projects/` directory, and `CLAUDE_CONFIG_DIR` are used.
+   */
+  private async resolveRoots(): Promise<ProfileRoot[]> {
+    if (this.explicitRoots) {
+      return this.explicitRoots;
+    }
+    const configured = vscode.workspace.getConfiguration("claudeSessions").get<string[]>("profileRoots") ?? [];
+    return resolveProfileRoots({
+      homeDir: os.homedir(),
+      configuredConfigDirs: Array.isArray(configured) ? configured : [],
+      envConfigDir: process.env.CLAUDE_CONFIG_DIR,
+      log: (msg) => this.outputChannel.appendLine(msg)
+    });
   }
 
   /**
@@ -62,24 +88,43 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
       sessionsByWorkspace.set(folder.uri.toString(), []);
     }
 
-    if (workspaceFolders.length === 0) {
-      return { sessionsByWorkspace, globalInfoMessage: "Open a folder to view Claude sessions." };
+    const resolvedRoots = await this.resolveRoots();
+    const roots: ProfileRoot[] = [];
+    for (const root of resolvedRoots) {
+      if (await exists(root.projectsDir)) {
+        roots.push(root);
+      }
     }
 
-    const rootExists = await exists(this.projectsRoot);
-    if (!rootExists) {
+    if (workspaceFolders.length === 0) {
+      return { sessionsByWorkspace, profiles: roots, globalInfoMessage: "Open a folder to view Claude sessions." };
+    }
+
+    if (roots.length === 0) {
+      const searched =
+        resolvedRoots.length > 0
+          ? resolvedRoots.map((root) => root.projectsDir).join(", ")
+          : path.join(os.homedir(), ".claude", "projects");
       return {
         sessionsByWorkspace,
-        globalInfoMessage: `No Claude project history found at ${this.projectsRoot}.`
+        profiles: roots,
+        globalInfoMessage: `No Claude project history found at ${searched}.`
       };
     }
 
     const log = (msg: string) => this.outputChannel.appendLine(msg);
-    const files = await collectTranscriptFiles(this.projectsRoot, log);
+    const files: { file: string; profile: ProfileRoot }[] = [];
+    for (const root of roots) {
+      const rootFiles = await collectTranscriptFiles(root.projectsDir, log);
+      log(`[discovery] profile "${root.id}": ${String(rootFiles.length)} transcript(s) under ${root.projectsDir}.`);
+      for (const file of rootFiles) {
+        files.push({ file, profile: root });
+      }
+    }
     const candidates = await this.processFilesBatched(files, log);
 
     // Prune session cache entries for deleted files
-    const fileSet = new Set(files);
+    const fileSet = new Set(files.map((entry) => entry.file));
     for (const cachedPath of this.sessionCacheByPath.keys()) {
       if (!fileSet.has(cachedPath)) {
         this.sessionCacheByPath.delete(cachedPath);
@@ -119,7 +164,10 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
         cwd: candidate.parsed.cwd,
         transcriptPath: candidate.transcriptPath,
         title: buildTitle(candidate.parsed.titleSourceRaw, candidate.parsed.sessionId),
-        updatedAt: candidate.updatedAt
+        updatedAt: candidate.updatedAt,
+        profileId: candidate.profile.id,
+        profileLabel: candidate.profile.label,
+        configDir: candidate.profile.configDir
       };
 
       const sessions = byWorkspaceAndSession.get(workspaceKey);
@@ -141,15 +189,20 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
       sessionsByWorkspace.set(workspaceKey, list);
     }
 
-    return { sessionsByWorkspace };
+    return { sessionsByWorkspace, profiles: roots };
   }
 
-  private async processFilesBatched(files: string[], log: (msg: string) => void): Promise<TranscriptCandidate[]> {
+  private async processFilesBatched(
+    files: readonly { file: string; profile: ProfileRoot }[],
+    log: (msg: string) => void
+  ): Promise<TranscriptCandidate[]> {
     const candidates: TranscriptCandidate[] = [];
 
     for (let i = 0; i < files.length; i += BATCH_CONCURRENCY) {
       const batch = files.slice(i, i + BATCH_CONCURRENCY);
-      const results = await Promise.allSettled(batch.map((file) => this.processOneFile(file, log)));
+      const results = await Promise.allSettled(
+        batch.map((entry) => this.processOneFile(entry.file, entry.profile, log))
+      );
 
       for (const result of results) {
         if (result.status === "fulfilled" && result.value) {
@@ -163,7 +216,11 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
     return candidates;
   }
 
-  private async processOneFile(file: string, log: (msg: string) => void): Promise<TranscriptCandidate | null> {
+  private async processOneFile(
+    file: string,
+    profile: ProfileRoot,
+    log: (msg: string) => void
+  ): Promise<TranscriptCandidate | null> {
     let stat: fs.Stats;
     try {
       stat = await fsp.stat(file);
@@ -177,7 +234,8 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
       return {
         transcriptPath: file,
         updatedAt: stat.mtimeMs,
-        parsed: cached.parsed
+        parsed: cached.parsed,
+        profile
       };
     }
 
@@ -191,7 +249,8 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
     return {
       transcriptPath: file,
       updatedAt: stat.mtimeMs,
-      parsed
+      parsed,
+      profile
     };
   }
 
@@ -260,6 +319,7 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
 
           const entry: SearchableEntry = {
             sessionId: session.sessionId,
+            profileId: session.profileId,
             transcriptPath: session.transcriptPath,
             title: session.title,
             cwd: session.cwd,
@@ -281,4 +341,14 @@ export class ClaudeSessionDiscoveryService implements ISessionDiscoveryService {
 
     return entries;
   }
+}
+
+/**
+ * Backwards-compatible adapter for callers that pass a bare `projects/` path
+ * (the previous constructor shape, still used by the tests).
+ */
+function projectsDirToProfileRoot(projectsDir: string): ProfileRoot {
+  const configDir = path.dirname(path.resolve(projectsDir));
+  const id = profileIdFromConfigDir(configDir);
+  return { id, label: id, configDir, projectsDir: path.resolve(projectsDir) };
 }

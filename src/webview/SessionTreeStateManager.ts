@@ -1,20 +1,32 @@
+import * as os from "os";
 import * as vscode from "vscode";
 import { SessionNode } from "../models";
 import { ISessionDiscoveryService, SessionPrompt } from "../discovery/types";
+import { ProfileRoot, displayConfigDir } from "../discovery/profileRoots";
+import { groupSessionsByProfile, shouldGroupByProfile } from "./profileGrouping";
 import { formatAgeToken, truncateForTreeLabel, findHighlightRanges } from "../utils/formatting";
-import { WebviewTreeState, WebviewWorkspaceGroup, WebviewSessionItem, WebviewPromptItem } from "./messages";
+import {
+  WebviewTreeState,
+  WebviewWorkspaceGroup,
+  WebviewProfileGroup,
+  WebviewSessionItem,
+  WebviewPromptItem
+} from "./messages";
 
 export class SessionTreeStateManager {
   private readonly _onDidChangeState = new vscode.EventEmitter<void>();
   public readonly onDidChangeState = this._onDidChangeState.event;
 
   private sessionsByWorkspace = new Map<string, SessionNode[]>();
+  private profiles: readonly ProfileRoot[] = [];
   private globalInfoMessage: string | undefined;
   private filterQuery: string | undefined;
   private filteredSessionIds: Set<string> | undefined;
   private _selectionMode = false;
   private checkedSessionIds = new Set<string>();
   private expandedWorkspaces = new Set<string>();
+  /** Profile groups start expanded, so only explicit collapses are tracked. */
+  private collapsedProfiles = new Set<string>();
   private expandedSessions = new Set<string>();
   private promptsCache = new Map<string, SessionPrompt[]>();
   private hasLoaded = false;
@@ -34,6 +46,7 @@ export class SessionTreeStateManager {
     const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
     const result = await this.discoveryService.discover(workspaceFolders);
     this.sessionsByWorkspace = result.sessionsByWorkspace;
+    this.profiles = result.profiles;
     this.globalInfoMessage = result.globalInfoMessage;
     this.hasLoaded = true;
     this.promptsCache.clear();
@@ -104,6 +117,15 @@ export class SessionTreeStateManager {
     this.scheduleStateChange();
   }
 
+  public toggleProfileExpand(profileKey: string): void {
+    if (this.collapsedProfiles.has(profileKey)) {
+      this.collapsedProfiles.delete(profileKey);
+    } else {
+      this.collapsedProfiles.add(profileKey);
+    }
+    this.scheduleStateChange();
+  }
+
   public toggleSessionExpand(sessionId: string): void {
     if (this.expandedSessions.has(sessionId)) {
       this.expandedSessions.delete(sessionId);
@@ -149,10 +171,12 @@ export class SessionTreeStateManager {
   public async buildWebviewState(): Promise<WebviewTreeState> {
     const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
     const workspaces: WebviewWorkspaceGroup[] = [];
+    const expandedProfiles: string[] = [];
 
     for (const folder of workspaceFolders) {
       const uri = folder.uri.toString();
-      let sessions = this.sessionsByWorkspace.get(uri) ?? [];
+      const allSessions = this.sessionsByWorkspace.get(uri) ?? [];
+      let sessions = allSessions;
       let infoMessage: string | undefined;
 
       if (this.filteredSessionIds !== undefined) {
@@ -170,64 +194,41 @@ export class SessionTreeStateManager {
         }
       }
 
-      const sessionItems: WebviewSessionItem[] = [];
-      for (const session of sessions) {
-        const prompts = await this.getPromptsForSession(session);
-        const promptItems: WebviewPromptItem[] = prompts.map((prompt, index) => {
-          const label = truncateForTreeLabel(prompt.promptTitle, 64);
-          const highlightRanges = this.filterQuery ? findHighlightRanges(label, this.filterQuery) : [];
-          const lowerQuery = this.filterQuery?.toLowerCase();
-          const rawMatches = lowerQuery ? prompt.promptRaw.toLowerCase().includes(lowerQuery) : false;
-          const responseMatches =
-            lowerQuery && prompt.responseRaw ? prompt.responseRaw.toLowerCase().includes(lowerQuery) : false;
-
-          let matchType: "title" | "prompt" | "response" | undefined;
-          if (highlightRanges.length > 0) {
-            matchType = "title";
-          } else if (rawMatches) {
-            matchType = "prompt";
-          } else if (responseMatches) {
-            matchType = "response";
-          }
-
-          return {
-            promptId: prompt.promptId,
-            sessionId: prompt.sessionId,
-            sessionTitle: session.title,
-            promptIndex: index,
-            promptTitle: label,
-            promptRaw: prompt.promptRaw,
-            responseRaw: prompt.responseRaw,
-            timestampIso: prompt.timestampIso,
-            timestampMs: prompt.timestampMs,
-            highlightRanges: highlightRanges.length > 0 ? highlightRanges : undefined,
-            matchType
-          };
+      if (!shouldGroupByProfile(allSessions)) {
+        workspaces.push({
+          workspaceUri: uri,
+          workspaceName: folder.name,
+          sessions: await this.buildSessionItems(sessions, 1),
+          infoMessage: sessions.length === 0 ? infoMessage : undefined
         });
+        continue;
+      }
 
-        sessionItems.push({
-          sessionId: session.sessionId,
-          title: session.title,
-          description: formatAgeToken(session.updatedAt),
-          tooltip: [
-            `Session: ${session.sessionId}`,
-            `Title: ${session.title}`,
-            `Last used: ${new Date(session.updatedAt).toLocaleString()}`,
-            `CWD: ${session.cwd}`,
-            `Transcript: ${session.transcriptPath}`
-          ].join("\n"),
-          transcriptPath: session.transcriptPath,
-          cwd: session.cwd,
-          updatedAt: session.updatedAt,
-          prompts: this.expandedSessions.has(session.sessionId) ? promptItems : undefined
+      const profileGroups: WebviewProfileGroup[] = [];
+      const buckets = groupSessionsByProfile(
+        sessions,
+        this.profiles.map((profile) => profile.id)
+      );
+      for (const bucket of buckets) {
+        const profileKey = `${uri}::${bucket.profileId}`;
+        if (!this.collapsedProfiles.has(profileKey)) {
+          expandedProfiles.push(profileKey);
+        }
+        profileGroups.push({
+          profileKey,
+          profileId: bucket.profileId,
+          label: bucket.label,
+          description: displayConfigDir(bucket.configDir, os.homedir()),
+          sessions: await this.buildSessionItems(bucket.sessions, 2)
         });
       }
 
       workspaces.push({
         workspaceUri: uri,
         workspaceName: folder.name,
-        sessions: sessionItems,
-        infoMessage: sessions.length === 0 ? infoMessage : undefined
+        sessions: [],
+        profiles: profileGroups,
+        infoMessage: profileGroups.length === 0 ? infoMessage : undefined
       });
     }
 
@@ -246,8 +247,69 @@ export class SessionTreeStateManager {
       selectionMode: this._selectionMode,
       checkedSessionIds: Array.from(this.checkedSessionIds),
       expandedWorkspaces: Array.from(this.expandedWorkspaces),
+      expandedProfiles,
       expandedSessions: Array.from(this.expandedSessions)
     };
+  }
+
+  private async buildSessionItems(sessions: readonly SessionNode[], depth: number): Promise<WebviewSessionItem[]> {
+    const sessionItems: WebviewSessionItem[] = [];
+
+    for (const session of sessions) {
+      const prompts = await this.getPromptsForSession(session);
+      const promptItems: WebviewPromptItem[] = prompts.map((prompt, index) => {
+        const label = truncateForTreeLabel(prompt.promptTitle, 64);
+        const highlightRanges = this.filterQuery ? findHighlightRanges(label, this.filterQuery) : [];
+        const lowerQuery = this.filterQuery?.toLowerCase();
+        const rawMatches = lowerQuery ? prompt.promptRaw.toLowerCase().includes(lowerQuery) : false;
+        const responseMatches =
+          lowerQuery && prompt.responseRaw ? prompt.responseRaw.toLowerCase().includes(lowerQuery) : false;
+
+        let matchType: "title" | "prompt" | "response" | undefined;
+        if (highlightRanges.length > 0) {
+          matchType = "title";
+        } else if (rawMatches) {
+          matchType = "prompt";
+        } else if (responseMatches) {
+          matchType = "response";
+        }
+
+        return {
+          promptId: prompt.promptId,
+          sessionId: prompt.sessionId,
+          sessionTitle: session.title,
+          promptIndex: index,
+          promptTitle: label,
+          promptRaw: prompt.promptRaw,
+          responseRaw: prompt.responseRaw,
+          timestampIso: prompt.timestampIso,
+          timestampMs: prompt.timestampMs,
+          highlightRanges: highlightRanges.length > 0 ? highlightRanges : undefined,
+          matchType
+        };
+      });
+
+      sessionItems.push({
+        sessionId: session.sessionId,
+        depth,
+        title: session.title,
+        description: formatAgeToken(session.updatedAt),
+        tooltip: [
+          `Session: ${session.sessionId}`,
+          `Title: ${session.title}`,
+          `Last used: ${new Date(session.updatedAt).toLocaleString()}`,
+          `CWD: ${session.cwd}`,
+          `Profile: ${session.profileLabel} (${session.configDir})`,
+          `Transcript: ${session.transcriptPath}`
+        ].join("\n"),
+        transcriptPath: session.transcriptPath,
+        cwd: session.cwd,
+        updatedAt: session.updatedAt,
+        prompts: this.expandedSessions.has(session.sessionId) ? promptItems : undefined
+      });
+    }
+
+    return sessionItems;
   }
 
   private async getPromptsForSession(session: SessionNode): Promise<SessionPrompt[]> {

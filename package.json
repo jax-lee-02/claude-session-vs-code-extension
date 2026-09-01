@@ -176,6 +176,15 @@
           "default": true,
           "description": "Show a required warning confirmation before launching Claude with --dangerously-skip-permissions."
         },
+        "claudeSessions.profileRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "window",
+          "markdownDescription": "Claude configuration directories to scan for sessions, e.g. `[\"~/.claude\", \"~/.claude-personal\"]`. Leave empty (default) to auto-discover `~/.claude`, every `~/.claude-*` directory that contains a `projects/` folder, and `CLAUDE_CONFIG_DIR`. When two or more profiles hold sessions for the same folder, the tree groups them under a profile row; a single profile keeps the flat list."
+        },
         "claudeSessions.maxDepth": {
           "type": "integer",
           "default": -1,

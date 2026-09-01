@@ -15,6 +15,9 @@ function makeSessionNode(overrides: Partial<SessionNode> = {}): SessionNode {
     transcriptPath: "/home/user/.claude/projects/-workspace-project/sess-001.jsonl",
     title: "Test Session",
     updatedAt: Date.now(),
+    profileId: "default",
+    profileLabel: "default",
+    configDir: "/home/user/.claude",
     ...overrides
   };
 }
@@ -31,7 +34,7 @@ function makePrompt(overrides: Partial<SessionPrompt> = {}): SessionPrompt {
 
 function createMockDiscovery(promptsBySessionId: Map<string, SessionPrompt[]> = new Map()): ISessionDiscoveryService {
   return {
-    discover: async () => ({ sessionsByWorkspace: new Map(), globalInfoMessage: undefined }),
+    discover: async () => ({ sessionsByWorkspace: new Map(), profiles: [], globalInfoMessage: undefined }),
     getUserPrompts: async (session: SessionNode) => promptsBySessionId.get(session.sessionId) ?? [],
     getSearchableEntries: async () => [],
     invalidateSessionCache: () => {}

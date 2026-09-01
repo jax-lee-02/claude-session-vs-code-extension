@@ -5,6 +5,11 @@ export interface SessionNode {
   readonly transcriptPath: string;
   readonly title: string;
   readonly updatedAt: number;
+  /** Profile the transcript was found under; `default` for `~/.claude`. */
+  readonly profileId: string;
+  readonly profileLabel: string;
+  /** Configuration directory of that profile, passed as `CLAUDE_CONFIG_DIR` on resume. */
+  readonly configDir: string;
 }
 
 export interface SessionPromptNode {

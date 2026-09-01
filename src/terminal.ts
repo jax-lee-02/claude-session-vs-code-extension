@@ -118,9 +118,13 @@ export class ClaudeTerminalService {
       return;
     }
 
+    // The transcript lives under the profile's configuration directory, so the
+    // resume must run against that profile even when the user's shell exports a
+    // different CLAUDE_CONFIG_DIR.
     const terminal = vscode.window.createTerminal({
       name: truncateForTreeLabel(session.title, 35),
       cwd: session.cwd,
+      env: buildSessionEnv(session),
       location: {
         viewColumn: vscode.ViewColumn.Active
       }
@@ -168,6 +172,18 @@ export class ClaudeTerminalService {
       }
     }
   }
+}
+
+/**
+ * Environment overrides for a resumed session. Returns `undefined` when the
+ * session carries no profile information, leaving the inherited environment
+ * untouched.
+ */
+export function buildSessionEnv(session: SessionNode): Record<string, string> | undefined {
+  if (!session.configDir) {
+    return undefined;
+  }
+  return { CLAUDE_CONFIG_DIR: session.configDir };
 }
 
 export function buildClaudeResumeCommand(sessionId: string, dangerouslySkipPermissions: boolean): string {
