@@ -215,23 +215,15 @@ export function getWebviewScript(): string {
             continue;
           }
 
-          const profileGroups = workspace.profiles || null;
-          const itemCount = profileGroups ? profileGroups.length : workspace.sessions.length;
+          const profileGroups = workspace.profiles || [];
 
-          if (workspace.infoMessage && itemCount === 0) {
+          if (workspace.infoMessage && profileGroups.length === 0) {
             rows.push(
               '<div class="info-row" data-depth="1">' +
               '<span class="codicon codicon-info"></span>' +
               '<span>' + escapeHtml(workspace.infoMessage) + '</span>' +
               '</div>'
             );
-            continue;
-          }
-
-          if (!profileGroups) {
-            for (const session of workspace.sessions) {
-              renderSession(session);
-            }
             continue;
           }
 

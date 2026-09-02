@@ -14,7 +14,7 @@ export interface WebviewPromptItem {
 
 export interface WebviewSessionItem {
   readonly sessionId: string;
-  /** Indentation level of the session row: 1 when flat, 2 when nested under a profile. */
+  /** Indentation level of the session row; prompts render one level deeper. */
   readonly depth: number;
   readonly title: string;
   readonly description: string;
@@ -38,10 +38,8 @@ export interface WebviewProfileGroup {
 export interface WebviewWorkspaceGroup {
   readonly workspaceUri: string;
   readonly workspaceName: string;
-  /** Sessions rendered directly under the folder; empty when `profiles` is set. */
-  readonly sessions: WebviewSessionItem[];
-  /** Set only when the folder holds sessions from two or more profiles. */
-  readonly profiles?: WebviewProfileGroup[];
+  /** Sessions always sit under a profile row, one group per profile with sessions. */
+  readonly profiles: WebviewProfileGroup[];
   readonly infoMessage?: string;
 }
 

@@ -7,22 +7,6 @@ export interface ProfileBucket {
   readonly sessions: SessionNode[];
 }
 
-/**
- * A folder gets a profile level only when its sessions come from two or more
- * profiles. Callers pass the unfiltered session list so the tree keeps its
- * shape while a search filter is active.
- */
-export function shouldGroupByProfile(sessions: readonly SessionNode[]): boolean {
-  const profileIds = new Set<string>();
-  for (const session of sessions) {
-    profileIds.add(session.profileId);
-    if (profileIds.size > 1) {
-      return true;
-    }
-  }
-  return false;
-}
-
 /** Discovery order first (the default profile leads), then any unknown ids alphabetically. */
 export function orderProfileIds(profileIds: ReadonlySet<string>, profileOrder: readonly string[]): string[] {
   const ordered = profileOrder.filter((id) => profileIds.has(id));
