@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import { SessionNode } from "../../models";
-import { groupSessionsByProfile, orderProfileIds, shouldGroupByProfile } from "../../webview/profileGrouping";
+import { groupSessionsByProfile, orderProfileIds } from "../../webview/profileGrouping";
 
 function makeSession(sessionId: string, profileId: string, updatedAt = 0): SessionNode {
   return {
@@ -15,20 +15,6 @@ function makeSession(sessionId: string, profileId: string, updatedAt = 0): Sessi
     configDir: profileId === "default" ? "/home/user/.claude" : `/home/user/.claude-${profileId}`
   };
 }
-
-describe("shouldGroupByProfile()", () => {
-  it("stays flat for an empty list", () => {
-    assert.strictEqual(shouldGroupByProfile([]), false);
-  });
-
-  it("stays flat when every session comes from one profile", () => {
-    assert.strictEqual(shouldGroupByProfile([makeSession("a", "default"), makeSession("b", "default")]), false);
-  });
-
-  it("groups when two profiles are present", () => {
-    assert.strictEqual(shouldGroupByProfile([makeSession("a", "default"), makeSession("b", "personal")]), true);
-  });
-});
 
 describe("orderProfileIds()", () => {
   it("follows the discovery order", () => {
@@ -48,6 +34,19 @@ describe("orderProfileIds()", () => {
 });
 
 describe("groupSessionsByProfile()", () => {
+  it("groups a single profile too, so every folder reads the same", () => {
+    const buckets = groupSessionsByProfile([makeSession("a", "default")], ["default"]);
+
+    assert.deepStrictEqual(
+      buckets.map((bucket) => bucket.profileId),
+      ["default"]
+    );
+  });
+
+  it("returns no buckets for a folder without sessions", () => {
+    assert.deepStrictEqual(groupSessionsByProfile([], ["default", "personal"]), []);
+  });
+
   it("buckets sessions per profile in discovery order", () => {
     const sessions = [makeSession("a", "personal"), makeSession("b", "default"), makeSession("c", "personal")];
 

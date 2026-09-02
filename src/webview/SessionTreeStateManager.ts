@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { SessionNode } from "../models";
 import { ISessionDiscoveryService, SessionPrompt } from "../discovery/types";
 import { ProfileRoot, displayConfigDir } from "../discovery/profileRoots";
-import { groupSessionsByProfile, shouldGroupByProfile } from "./profileGrouping";
+import { groupSessionsByProfile } from "./profileGrouping";
 import { formatAgeToken, truncateForTreeLabel, findHighlightRanges } from "../utils/formatting";
 import {
   WebviewTreeState,
@@ -175,8 +175,7 @@ export class SessionTreeStateManager {
 
     for (const folder of workspaceFolders) {
       const uri = folder.uri.toString();
-      const allSessions = this.sessionsByWorkspace.get(uri) ?? [];
-      let sessions = allSessions;
+      let sessions = this.sessionsByWorkspace.get(uri) ?? [];
       let infoMessage: string | undefined;
 
       if (this.filteredSessionIds !== undefined) {
@@ -192,16 +191,6 @@ export class SessionTreeStateManager {
         } else {
           infoMessage = "No Claude sessions found for this folder.";
         }
-      }
-
-      if (!shouldGroupByProfile(allSessions)) {
-        workspaces.push({
-          workspaceUri: uri,
-          workspaceName: folder.name,
-          sessions: await this.buildSessionItems(sessions, 1),
-          infoMessage: sessions.length === 0 ? infoMessage : undefined
-        });
-        continue;
       }
 
       const profileGroups: WebviewProfileGroup[] = [];
@@ -226,7 +215,6 @@ export class SessionTreeStateManager {
       workspaces.push({
         workspaceUri: uri,
         workspaceName: folder.name,
-        sessions: [],
         profiles: profileGroups,
         infoMessage: profileGroups.length === 0 ? infoMessage : undefined
       });
@@ -236,7 +224,7 @@ export class SessionTreeStateManager {
       workspaces.push({
         workspaceUri: "",
         workspaceName: "",
-        sessions: [],
+        profiles: [],
         infoMessage: "Open a folder to view Claude sessions."
       });
     }

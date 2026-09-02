@@ -11,6 +11,11 @@ export interface OpenSessionOptions {
   readonly dangerouslySkipPermissions?: boolean;
 }
 
+/** POSIX shells accept a per-command variable prefix; cmd.exe and PowerShell do not. */
+function supportsInlineEnvPrefix(): boolean {
+  return process.platform !== "win32";
+}
+
 /** Time to wait for shell integration before falling back to sendText. */
 export const SHELL_INTEGRATION_TIMEOUT_MS = 500;
 
@@ -130,9 +135,14 @@ export class ClaudeTerminalService {
       }
     });
 
-    const command = buildClaudeResumeCommand(session.sessionId, options.dangerouslySkipPermissions === true);
+    const command = buildClaudeResumeCommand(
+      session.sessionId,
+      options.dangerouslySkipPermissions === true,
+      supportsInlineEnvPrefix() ? session.configDir : undefined
+    );
     this.outputChannel.appendLine(
-      `[terminal] Launching session ${session.sessionId} (skipPermissions=${String(options.dangerouslySkipPermissions === true)}).`
+      `[terminal] Launching session ${session.sessionId} in profile "${session.profileLabel}" ` +
+        `(configDir=${session.configDir}, skipPermissions=${String(options.dangerouslySkipPermissions === true)}).`
     );
     terminal.show(true);
     await vscode.window.withProgress(
@@ -186,8 +196,26 @@ export function buildSessionEnv(session: SessionNode): Record<string, string> | 
   return { CLAUDE_CONFIG_DIR: session.configDir };
 }
 
-export function buildClaudeResumeCommand(sessionId: string, dangerouslySkipPermissions: boolean): string {
-  const args = ["claude"];
+/**
+ * `claude --resume` reads the transcript store of `CLAUDE_CONFIG_DIR`, so a
+ * session from a non-default profile only resumes when that variable points at
+ * its configuration directory.
+ *
+ * The variable is written as a per-command prefix rather than relying on the
+ * terminal environment alone: a shell startup file that assigns
+ * `CLAUDE_CONFIG_DIR` runs after the terminal environment is applied and would
+ * otherwise win. It also keeps the profile visible in the terminal.
+ */
+export function buildClaudeResumeCommand(
+  sessionId: string,
+  dangerouslySkipPermissions: boolean,
+  configDir?: string
+): string {
+  const args: string[] = [];
+  if (configDir) {
+    args.push(`CLAUDE_CONFIG_DIR=${shellQuote(configDir)}`);
+  }
+  args.push("claude");
   if (dangerouslySkipPermissions) {
     args.push("--dangerously-skip-permissions");
   }

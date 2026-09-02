@@ -451,6 +451,30 @@ describe("shellQuote", () => {
   });
 });
 
+describe("buildClaudeResumeCommand() with a profile", () => {
+  it("prefixes CLAUDE_CONFIG_DIR so a shell startup file cannot override it", () => {
+    const command = buildClaudeResumeCommand("abc-123", false, "/home/user/.claude-personal");
+    assert.strictEqual(command, "CLAUDE_CONFIG_DIR='/home/user/.claude-personal' claude --resume 'abc-123'");
+  });
+
+  it("keeps the prefix ahead of --dangerously-skip-permissions", () => {
+    const command = buildClaudeResumeCommand("abc-123", true, "/home/user/.claude");
+    assert.strictEqual(
+      command,
+      "CLAUDE_CONFIG_DIR='/home/user/.claude' claude --dangerously-skip-permissions --resume 'abc-123'"
+    );
+  });
+
+  it("quotes a configuration directory containing a single quote", () => {
+    const command = buildClaudeResumeCommand("abc-123", false, "/home/o'brien/.claude");
+    assert.strictEqual(command, "CLAUDE_CONFIG_DIR='/home/o'\\''brien/.claude' claude --resume 'abc-123'");
+  });
+
+  it("omits the prefix when no configuration directory is given", () => {
+    assert.strictEqual(buildClaudeResumeCommand("abc-123", false), "claude --resume 'abc-123'");
+  });
+});
+
 describe("buildSessionEnv()", () => {
   function makeSession(configDir: string): SessionNode {
     return {
